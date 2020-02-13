@@ -1,0 +1,617 @@
+%%%%%Main
+
+
+
+clear all;clc;close all;
+
+load henondata x
+
+Z=x;
+
+NumberOfInputs = 2;
+
+NumberOfNeurons = 5;
+
+LengthOfTimeSeries = 2000;
+
+PredictionHorizon = 25;
+
+lambda = 0.00;
+
+INPUT=[];OUTPUT=[]; k=0; loop=1;
+
+while loop
+
+   k=k+1;
+
+   INPUT = [INPUT; x(k+0:k+NumberOfInputs-1)];
+
+   OUTPUT = [OUTPUT; x(k+NumberOfInputs)];
+
+   if k+NumberOfInputs>=LengthOfTimeSeries; loop=0; end
+
+end
+
+NumberOfInputs = size(INPUT,2); R=NumberOfInputs;
+
+NumberOfData = length(INPUT);
+
+TrainingIndex = 1:2:NumberOfData;
+
+ValidationIndex = 2:2:NumberOfData;
+
+TrainingINPUT = INPUT(TrainingIndex,:);
+
+TrainingOUTPUT = OUTPUT(TrainingIndex,:);
+
+ValidationINPUT = INPUT(ValidationIndex,:);
+
+ValidationOUTPUT = OUTPUT(ValidationIndex,:);
+
+NumberOfTrainingData = size(TrainingINPUT,1);
+
+NumberOfValidationData = size(ValidationINPUT,1);
+
+Nmax=500; MaxNumOfAllowableInc = 10;
+
+eps1 = 1e-6;
+
+Smax = (NumberOfTrainingData-1)/3;
+
+for S=20;
+
+   
+
+    Wg = rand(S,R)-0.5;
+
+    bh = rand(S,1)-0.5;
+
+    Wc = rand(1,S)-0.5;
+
+    bc = rand(1,1)-0.5;
+
+    [x]= Matrix2Vector(Wg,bh,Wc,bc);
+
+    
+
+    
+
+    [J] = MISOANNJacobian(TrainingINPUT,Wg,bh,Wc,bc,lambda);
+
+    [yhat]=MISOANNio(TrainingINPUT,Wg,bh,Wc,bc);
+
+    eTRAINING=[[TrainingOUTPUT-yhat]/sqrt(NumberOfTrainingData); lambda*x];
+
+    fTRAINING=eTRAINING'*eTRAINING;
+
+    yhat=MISOANNio(ValidationINPUT,Wg,bh,Wc,bc);
+
+    eVALIDATION=[[ValidationOUTPUT-yhat]/sqrt(NumberOfValidationData); lambda*x];
+
+    fVALIDATION=eVALIDATION'*eVALIDATION;    
+
+    gk=[2*J'*eTRAINING];
+
+    I=eye(length(x)); mu=1; mumax=1e+20;
+
+    MainLoop=1; fVALIDATIONbest=fVALIDATION; k=0; FTRA=0; FVAL=0;
+
+    fprintf('k:%4.0f\t ftra:%4.8f\t fval:%4.8f\t fval*:%4.8f\t ||g||:%4.6f\n', ([k  log10(fTRAINING) log10(fVALIDATION) log10(fVALIDATIONbest) norm(gk)]))
+
+    while MainLoop
+
+        k=k+1;
+
+        
+
+        yhat=MISOANNio(TrainingINPUT,Wg,bh,Wc,bc);
+
+        eTRAINING=[[TrainingOUTPUT-yhat]/sqrt(NumberOfTrainingData); lambda*x];
+
+        fTRAINING=eTRAINING'*eTRAINING;
+
+        [J]=MISOANNJacobian(TrainingINPUT,Wg,bh,Wc,bc,lambda);
+
+        
+
+        InnerLoop=1;
+
+       while InnerLoop 
+
+            pk=-inv(J'*J+mu*I)*J'*eTRAINING;
+
+            z= x+pk;
+
+            [Wgz,bhz,Wcz,bcz]=Vector2Matrix(z,S,R);
+
+            yhatz=MISOANNio(TrainingINPUT,Wgz,bhz,Wcz,bcz);
+
+            ez = [[TrainingOUTPUT-yhatz]/sqrt(NumberOfTrainingData); lambda*z];
+
+            fz = ez' * ez;
+
+            if fz<fTRAINING
+
+                x=z; Wg=Wgz; bh=bhz; Wc=Wcz; bc=bcz; fTRAINING=fz;
+
+                mu = mu/10; InnerLoop =0;
+
+            else
+
+                mu = mu*10;
+
+            end
+
+            if mu>mumax; InnerLoop=0; MainLoop=0; end
+
+       end
+
+       gk=[2*J'*eTRAINING];
+
+       yhat=MISOANNio(ValidationINPUT,Wg,bh,Wc,bc);
+
+       eVALIDATION=[[ValidationOUTPUT-yhat]/sqrt(NumberOfValidationData); lambda*x];
+
+       fVALIDATION=eVALIDATION'*eVALIDATION;
+
+       FVAL(k)=log10(fVALIDATION);
+
+       if fVALIDATION<fVALIDATIONbest
+
+           fVALIDATIONbest = fVALIDATION;
+
+           xBEST=x; WgBEST=Wg; bhBEST=bh; WcBEST=Wc; bcBEST=bc; kBEST=k;
+
+           FValIncCounter=0;
+
+       else
+
+           FValIncCounter = FValIncCounter+1;
+
+       end
+
+        FTRA(k)=log10(fTRAINING);
+
+        if [k>Nmax] | [norm(gk)<eps1] | [FValIncCounter>=MaxNumOfAllowableInc]; MainLoop=0; end
+
+        fprintf('k:%4.0f\t ftra:%4.8f\t fval:%4.8f\t fval*:%4.8f\t ||g||:%4.6f\n', ([k log10(fTRAINING) log10(fVALIDATION) log10(fVALIDATIONbest) norm(gk)]))
+
+    end
+
+    fprintf('S:%4.0f\t ftra:%4.8f\n',([S log10(fVALIDATIONbest)]))
+
+end
+
+subplot(311)
+
+plot(FTRA,'r');hold on;grid
+
+plot(FVAL,'b');
+
+h=line([kBEST kBEST],[min([FTRA,FVAL]) max([FTRA,FVAL])]); set(h,'LineWidth',1.0); set(h,'LineStyle','--'); set(h,'Color',[0 1 0]);
+
+xlabel('k');
+
+ylabel('F_{tra}(k), F_{val}(k)');
+
+title('Training and Validation errors');
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+subplot(312)
+
+TestIndex = LengthOfTimeSeries+1:LengthOfTimeSeries+PredictionHorizon;
+
+plot(TestIndex,Z(TestIndex),'r'); hold on
+
+plot(TestIndex,Z(TestIndex),'ro');
+
+PREDICTIONS=[]; input=[Z(LengthOfTimeSeries-R+1:LengthOfTimeSeries)];
+
+for k=1:PredictionHorizon
+
+    [yhat]=MISOANNio(input,WgBEST,bhBEST,WcBEST,bcBEST);
+
+    PREDICTIONS=[PREDICTIONS; yhat];
+
+    input=[input(2:end),yhat];
+
+end
+
+plot(TestIndex,PREDICTIONS,'b')
+
+plot(TestIndex,PREDICTIONS,'bx')
+
+xlabel('\it t_{i}')
+
+ylabel('\it y_{i} yhat_{i}');
+
+title('Predictions');
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+subplot(313)
+
+h=stem((xBEST),'filled'); set(h,'Color',[1 0 0]); set(h,'MarkerSize',2); set(h,'LineWidth',2);
+
+xlabel('\it i')
+
+ylabel('\it x_{i}');
+
+title('Parameters');
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+set(gcf,'color',[1 1 1])
+
+set(gcf,'Position',[236 209 1230 420])
+
+%%%%%
+
+function [yhat]=MISOANNio(INPUT,Wg,bh,Wc,bc)
+
+NumberOfData= size(INPUT,1);
+
+S =size(Wg,1);
+
+for i=1:NumberOfData
+
+    yhat(i,1)=Wc*tanh(Wg*INPUT(i,:)'+bh)+bc;
+
+end
+
+%%%%%%
+
+function [x]=Matrix2Vector(Wg,bh,Wc,bc)
+
+x=[];
+
+for i=1:size(Wg,2)
+
+    x= [x;Wg(:,i)];
+
+end
+
+x= [x; bh; Wc'; bc];
+
+%%%%%%
+
+function [Wg,bh,Wc,bc]=Vector2Matrix(x,S,R)
+
+Wg=[]; bh=[]; Wc=[]; bc=[];
+
+for i=1:R
+
+    Wg = [Wg, x((i-1)*S+1:i*S)];
+
+end
+
+bh=x(R*S+1:R*S+S);
+
+Wc=x(S*(R+1)+1:S*(R+2))';
+
+bc=x(S*(R+2)+1);
+
+%%%%%
+
+function [J] = MISOANNJacobian(TrainingINPUT,Wg,bh,Wc,bc,lambda)
+
+NumberOfTrainingData = size(TrainingINPUT,1);
+
+S = size(Wg,1); R = size(Wg,2);
+
+for i=1:NumberOfTrainingData
+
+    for j=1:S*R
+
+        k=mod(j-1,S)+1;
+
+        m=fix((j-1)/S)+1;
+
+        J(i,j) = -[Wc(1,k)*TrainingINPUT(i,m)*[1-tanh(Wg(k,:)*TrainingINPUT(i,:)'+bh(k))^2]];
+
+    end
+
+    for j=S*R+1:S*R+S
+
+        J(i,j) = -[Wc(1,j-S*R)*[1-tanh(Wg(j-S*R,:)*TrainingINPUT(i,:)'+bh(j-S*R))^2]];
+
+    end
+
+    for j=S*(R+1)+1:S*(R+2)
+
+        J(i,j) = -[tanh(Wg(j-(R+1)*S,:)*TrainingINPUT(i,:)'+bh(j-(R+1)*S))];
+
+    end
+
+    for j=S*(R+2)+1:S*(R+2)+1
+
+        J(i,j) = -[1];
+
+    end
+
+end
+
+    J = J/sqrt(NumberOfTrainingData);
+
+    J = [J; lambda*eye(S*(R+2)+1)];
+
+%%%%%%%Classification
+
+%hagan demuth beale neural network design -- yeşil kitap
+
+clear all;clc;close all;
+
+%%%%%DATA
+
+B=4.5;
+
+N=400;
+
+Tall= [];
+
+for i=1:N/2
+
+    thata = pi/2 + (i-1)*[(2*B-1/N)]*pi;
+
+    Tall = [Tall, [thata*cos(thata);thata*sin(thata)]]; 
+
+end
+
+Tall = [Tall,-Tall];
+
+Tmax = pi/2 + [ (N/2 -1)*(2*B-1)/N]*pi;
+
+INPUT = [Tall]'/ Tmax;
+
+OUTPUT = [-ones(1,N/2), ones(1,N/2)]';
+
+clear B N Tall Tmax i thata
+
+lambda=0;
+
+%%%%%Normalizing
+
+%MinINPUT=min(INPUT); MaxINPUT=max(INPUT);
+
+%INPUT = [INPUT - MinINPUT] ./ [MaxINPUT - MinINPUT];
+
+%%%%%%
+
+NumberOfInputs = size(INPUT,2); R=NumberOfInputs;
+
+NumberOfData = length(INPUT);
+
+TrainingIndex = 1:2:NumberOfData;
+
+ValidationIndex = 2:2:NumberOfData;
+
+TrainingINPUT = INPUT(TrainingIndex,:);
+
+TrainingOUTPUT = OUTPUT(TrainingIndex,:);
+
+ValidationINPUT = INPUT(ValidationIndex,:);
+
+ValidationOUTPUT = OUTPUT(ValidationIndex,:);
+
+NumberOfTrainingData = size(TrainingINPUT,1);
+
+NumberOfValidationData = size(ValidationINPUT,1);
+
+Nmax=500; MaxNumOfAllowableInc = 10;
+
+eps1 = 1e-6;
+
+Smax = floor((NumberOfTrainingData-1)/3);
+
+for S = Smax;
+
+    
+
+    Wg = rand(S,R)-0.5;
+
+    bh = rand(S,1)-0.5;
+
+    Wc = rand(1,S)-0.5;
+
+    bc = rand(1,1)-0.5;
+
+    [x]= Matrix2Vector(Wg,bh,Wc,bc);
+
+    
+
+    
+
+    [J] = MISOANNJacobian(TrainingINPUT,Wg,bh,Wc,bc,lambda);
+
+    [yhat]=MISOANNio(TrainingINPUT,Wg,bh,Wc,bc);
+
+    eTRAINING=[[TrainingOUTPUT-yhat]/sqrt(NumberOfTrainingData); lambda*x];
+
+    fTRAINING=eTRAINING'*eTRAINING;
+
+    yhat=MISOANNio(ValidationINPUT,Wg,bh,Wc,bc);
+
+    eVALIDATION=[[ValidationOUTPUT-yhat]/sqrt(NumberOfValidationData); lambda*x];
+
+    fVALIDATION=eVALIDATION'*eVALIDATION;
+
+    gk=[2*J'*eTRAINING];
+
+    I=eye(length(x)); mu=1; mumax=1e+20;
+
+    MainLoop=1; fVALIDATIONbest=fVALIDATION; k=0; FTRA=0; FVAL=0;
+
+    fprintf('k:%4.0f\t ftra:%4.8f\t fval:%4.8f\t fval*:%4.8f\t ||g||:%4.6f\n', ([k log10(fTRAINING) log10(fVALIDATION) log10(fVALIDATIONbest) norm(gk)]))
+
+    while MainLoop
+
+        k=k+1;
+
+        
+
+        yhat=MISOANNio(TrainingINPUT,Wg,bh,Wc,bc);
+
+        eTRAINING=[[TrainingOUTPUT-yhat]/sqrt(NumberOfTrainingData); lambda*x];
+
+        fTRAINING=eTRAINING'*eTRAINING;
+
+        [J]=MISOANNJacobian(TrainingINPUT,Wg,bh,Wc,bc,lambda);
+
+        
+
+        InnerLoop=1;
+
+        while InnerLoop
+
+            pk=-inv(J'*J+mu*I)*J'*eTRAINING;
+
+            z= x+pk;
+
+            [Wgz,bhz,Wcz,bcz]=Vector2Matrix(z,S,R);
+
+            yhatz=MISOANNio(TrainingINPUT,Wgz,bhz,Wcz,bcz);
+
+            ez = [[TrainingOUTPUT-yhatz]/sqrt(NumberOfTrainingData); lambda*z];
+
+            fz = ez' * ez;
+
+            if fz<fTRAINING
+
+                x=z; Wg=Wgz; bh=bhz; Wc=Wcz; bc=bcz; fTRAINING=fz;
+
+                mu = mu/10; InnerLoop =0;
+
+            else
+
+                mu = mu*10;
+
+            end
+
+            if mu>mumax; InnerLoop=0; MainLoop=0; end
+
+        end
+
+        gk=[2*J'*eTRAINING];
+
+        yhat=MISOANNio(ValidationINPUT,Wg,bh,Wc,bc);
+
+        eVALIDATION=[[ValidationOUTPUT-yhat]/sqrt(NumberOfValidationData); lambda*x];
+
+        fVALIDATION=eVALIDATION'*eVALIDATION;
+
+        FVAL(k)=log10(fVALIDATION);
+
+        if fVALIDATION<fVALIDATIONbest
+
+            fVALIDATIONbest = fVALIDATION;
+
+            xBEST=x; WgBEST=Wg; bhBEST=bh; WcBEST=Wc; bcBEST=bc; kBEST=k;
+
+            FValIncCounter=0;
+
+        else
+
+            FValIncCounter = FValIncCounter+1;
+
+        end
+
+        FTRA(k)=log10(fTRAINING);
+
+        if [k>Nmax] | [norm(gk)<eps1] | [FValIncCounter>=MaxNumOfAllowableInc]; MainLoop=0; end
+
+        fprintf('k:%4.0f\t ftra:%4.8f\t fval:%4.8f\t fval*:%4.8f\t ||g||:%4.6f\n', ([k log10(fTRAINING) log10(fVALIDATION) log10(fVALIDATIONbest) norm(gk)]))
+
+    end
+
+    fprintf('S:%4.0f\t ftra:%4.8f\n',([S log10(fVALIDATIONbest)]))
+
+end
+
+subplot(221)
+
+plot(FTRA,'r');hold on;grid
+
+plot(FVAL,'b');
+
+h=line([kBEST kBEST],[min([FTRA,FVAL]) max([FTRA,FVAL])]); set(h,'LineWidth',1.0); set(h,'LineStyle','--'); %%burfa b,işeyler var
+
+xlabel('k');
+
+ylabel('F_{tra}(k), F_{val}(k)');
+
+title('Training and Validation errors');
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+subplot(2,2,[2,4])
+
+Tp=[]; Tm=[];
+
+for t1=0:0.01:1
+
+    for t2=0:0.01:1
+
+        input=[t1,t2];
+
+        [yhat]=MISOANNio(input,WgBEST,bhBEST,WcBEST,bcBEST);
+
+        yhat = sign(yhat);
+
+        if yhat==+1
+
+            Tp = [Tp; input];
+
+        else
+
+            Tm = [Tm; input];
+
+        end
+
+    end
+
+end
+
+plot(Tp(:,1),Tp(:,2),'g.'); hold on
+
+plot(Tm(:,1),Tm(:,2),'y.')
+
+Iplus= find(OUTPUT==1);
+
+Iminus=find(OUTPUT==-1);
+
+plot(INPUT(Iplus,1),INPUT(Iplus,2),'bo'); hold on
+
+plot(INPUT(Iminus,1),INPUT(Iminus,2),'rx');
+
+[yhat]=MISOANNio(input,WgBEST,bhBEST,WcBEST,bcBEST);
+
+yhat = sign(yhat);
+
+ClassificationError = length(find(OUTPUT~=yhat));
+
+xlabel('\it x_{1}')
+
+ylabel('\it x_{2}}');
+
+title('NumOfNeuros',numstr(S) , 'ClassificationError: ', num2str(ClassificationError));
+
+%%%%input fazlaysa yapma çizdirmeleri 2 tane input avrsa okey
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+subplot(313)
+
+h=stem((xBEST),'filled'); set(h,'Color',[1 0 0]); set(h,'MarkerSize',2); set(h,'LineWidth',2);
+
+xlabel('\it i')
+
+ylabel('\it x_{i}');
+
+title('Parameters');
+
+h=gca; set(h,'FontName','Cambria'); set(h,'FontSize',10)
+
+set(gcf,'color',[1 1 1])
+
+set(gcf,'Position',[236 209 1230 420])
